@@ -1,0 +1,63 @@
+name: Build Android 2.3 for Pi Zero
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+    - name: Repository klonen
+      uses: actions/checkout@v4
+
+    - name: Alte Build-Abhängigkeiten installieren
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git gnupg flex bison gperf build-essential \
+          zip curl zlib1g-dev libc6-dev lib32ncurses5-dev \
+          x11proto-core-dev libx11-dev libreadline-dev libgl1-mesa-dev \
+          tofrodos python-markdown libxml2-utils xsltproc
+
+    - name: Java 6 / OpenJDK einrichten
+      run: |
+        # Android 2.3 benötigt zwingend Java 6 zum Bauen
+        sudo apt-get install -y openjdk-6-jdk || true
+        export JAVA_HOME=/usr/lib/jvm/java-6-openjdk-amd64
+        export PATH=$JAVA_HOME/bin:$PATH
+        java -version || true
+
+    - name: Repo-Tool installieren und Quellcode clonen
+      run: |
+        # 1. Google Repo-Tool herunterladen
+        mkdir -p ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod a+x ~/bin/repo
+        export PATH=$PATH:~/bin
+
+        # 2. Ordner für die Android-Quelltexte anlegen
+        mkdir -p android-source
+        cd android-source
+
+        # 3. Git-Konfiguration für das Repo-Tool
+        git config --global user.email "runner@github.com"
+        git config --global user.name "GitHub Action Runner"
+
+        # 4. Manifest initialisieren und synchronisieren
+        # Passe ggf. die Repository-URL an dein Ziel-Projekt an!
+        repo init -u https://github.com/android-rpi/platform_manifest.git -b gingerbread
+        repo sync -j$(nproc)
+
+    - name: Build starten
+      run: |
+        cd android-source
+        source build/envsetup.sh
+        lunch rpi-eng
+        make -j$(nproc)
+
+    - name: Fertige Images als Artifact hochladen
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-2.3-rpi-zero-images
+        path: |
+          android-source/out/target/product/rpi/*.img
